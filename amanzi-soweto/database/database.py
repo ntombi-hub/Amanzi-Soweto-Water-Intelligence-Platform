@@ -95,10 +95,69 @@ def setup_sqlite(db_path="amanzi_soweto.db"):
         suburbs
     )
 
+    # Vaal Dam level history
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS dam_levels (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            dam_name    TEXT,
+            level_pct   REAL,
+            status      TEXT,
+            severity    TEXT,
+            source_url  TEXT,
+            scraped_at  TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
     print(f"Database ready at: {db_path}")
     return db_path
+
+
+# ---------------------------------------------------------------------------
+# insert_dam_level(record, db_path)
+# ---------------------------------------------------------------------------
+def insert_dam_level(record, db_path="amanzi_soweto.db"):
+    if not record:
+        return
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        INSERT INTO dam_levels (dam_name, level_pct, status, severity, source_url, scraped_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        record["dam_name"], record["level_pct"], record["status"],
+        record["severity"], record["source_url"], record["scraped_at"],
+    ))
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# get_latest_dam_level(db_path)
+# ---------------------------------------------------------------------------
+def get_latest_dam_level(db_path="amanzi_soweto.db"):
+    conn = sqlite3.connect(db_path)
+    row = conn.execute("""
+        SELECT * FROM dam_levels ORDER BY scraped_at DESC LIMIT 1
+    """).fetchone()
+    conn.close()
+    if not row:
+        return None
+    keys = ["id", "dam_name", "level_pct", "status", "severity", "source_url", "scraped_at"]
+    return dict(zip(keys, row))
+
+
+# ---------------------------------------------------------------------------
+# get_dam_history(db_path, limit)
+# ---------------------------------------------------------------------------
+def get_dam_history(db_path="amanzi_soweto.db", limit=30):
+    conn = sqlite3.connect(db_path)
+    df = pd.read_sql_query(
+        "SELECT * FROM dam_levels ORDER BY scraped_at DESC LIMIT ?",
+        conn, params=(limit,)
+    )
+    conn.close()
+    return df
 
 
 # ---------------------------------------------------------------------------

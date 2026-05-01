@@ -1,10 +1,10 @@
 # 💧 Amanzi Soweto — Water Intelligence Platform
 
-A real-time water outage intelligence system for Soweto, Johannesburg.
-Scrapes Johannesburg Water and Rand Water websites, classifies outage notices by severity,
-stores them in a database, sends WhatsApp/SMS alerts to residents, and displays a live dashboard.
+Real-time water outage intelligence for Soweto, Johannesburg.
+Scrapes Johannesburg Water and Rand Water, tracks Vaal Dam levels, sends WhatsApp/SMS alerts,
+exposes a REST API, and displays a live Streamlit dashboard.
 
-Built by **Ntombikayise  Sibisi** — github.com/ntombi-hub
+Built by **Ntombikayise Faith Sibisi**
 
 ---
 
@@ -13,17 +13,25 @@ Built by **Ntombikayise  Sibisi** — github.com/ntombi-hub
 ```
 amanzi-soweto/
 ├── scraper/
-│   ├── scraper.py              ← JHB Water scraper
-│   └── rand_water_scraper.py   ← Rand Water scraper
+│   ├── scraper.py              ← JHB Water scraper + classifier
+│   ├── rand_water_scraper.py   ← Rand Water scraper
+│   └── dam_scraper.py          ← Vaal Dam level scraper (DWS)
 ├── database/
 │   └── database.py             ← SQLite setup, insert, query
 ├── notifier/
 │   └── notifier.py             ← WhatsApp/SMS alerts via Twilio
 ├── dashboard/
-│   └── dashboard.py            ← Streamlit dashboard
-├── pipeline.py                 ← Main orchestrator
+│   └── dashboard.py            ← Streamlit live dashboard
+├── api/
+│   ├── api.py                  ← FastAPI REST API
+│   └── templates/
+│       └── subscribe.html      ← Resident subscription form
+├── pipeline.py                 ← Orchestrator: scrape → dam → store → alert
 ├── requirements.txt
-├── .env.example                ← Copy to .env and fill in credentials
+├── Procfile                    ← Railway deploy config
+├── railway.toml
+├── runtime.txt
+├── .env.example
 └── .gitignore
 ```
 
@@ -31,81 +39,139 @@ amanzi-soweto/
 
 ## Quick Start
 
-### 1. Clone the repo
 ```bash
 git clone https://github.com/ntombi-hub/amanzi-soweto
 cd amanzi-soweto
+python -m venv venv
+venv\Scripts\activate        # Windows
+pip install -r requirements.txt
+copy .env.example .env       # fill in Twilio credentials
+python pipeline.py           # run once
 ```
 
-### 2. Create a virtual environment
-```bash
-python3 -m venv venv
-source venv/bin/activate        # Mac/Linux
-# venv\Scripts\activate         # Windows
-```
+---
 
-### 3. Install dependencies
+## Running Each Service
+
+You need **3 separate terminal windows** — each command stays running.
+
+**Terminal 1 — Install dependencies (first time only)**
 ```bash
+cd c:\Users\Sibis\Amanzi-Soweto-Water-Intelligence-Platform\amanzi-soweto
 pip install -r requirements.txt
 ```
 
-### 4. Set up your credentials
-```bash
-cp .env.example .env
-# Open .env and fill in your Twilio credentials
-```
-
-### 5. Run the pipeline once
+**Terminal 1 — Pipeline (scrape + store + alert)**
 ```bash
 python pipeline.py
 ```
-
-### 6. Run on a schedule (every 2 hours)
+To keep it running every 2 hours automatically:
 ```bash
 python pipeline.py --schedule
 ```
 
-### 7. Launch the dashboard
+**Terminal 2 — Dashboard**
 ```bash
 streamlit run dashboard/dashboard.py
 ```
+Open in browser: `http://localhost:8501`
+
+**Terminal 3 — API**
+```bash
+uvicorn api.api:app --reload --port 8000
+```
+Open in browser: `http://localhost:8000/docs`
+
+| Service       | URL                          |
+|---------------|------------------------------|
+| Dashboard     | http://localhost:8501        |
+| API           | http://localhost:8000        |
+| API docs      | http://localhost:8000/docs   |
+| Subscribe form| http://localhost:8000/subscribe |
 
 ---
 
 ## How It Works
 
 ```
-Scraper (every 2hrs)
+pipeline.py (every 2 hrs)
     ↓
-JHB Water + Rand Water websites
+JHB Water scraper  +  Rand Water scraper  +  Vaal Dam scraper
     ↓
-Classify by severity (HIGH / MEDIUM / LOW)
+Classify: HIGH / MEDIUM / LOW
     ↓
-Store in SQLite / PostgreSQL
+SQLite (amanzi_soweto.db)
     ↓
-Send WhatsApp/SMS alerts via Twilio
+WhatsApp/SMS alerts via Twilio  →  subscribed residents
     ↓
-Streamlit dashboard shows live status
+Streamlit dashboard  +  FastAPI REST API
 ```
 
 ---
 
-## Soweto Coverage
+## REST API Endpoints
 
-25+ suburbs across 4 reservoir zones:
+Base URL (local): `http://localhost:8000`
 
-| Zone  | Reservoir                    | Suburbs                                              |
-|-------|------------------------------|------------------------------------------------------|
-| North | Power Park Reservoir         | Diepkloof, Meadowlands                               |
-| Central | Orlando Reservoir          | Orlando, Jabulani, Mofolo, Rockville                 |
-| South | Chiawelo Reservoir           | Chiawelo, Dlamini, Protea N/S, Naledi, Pimville, Senaoane, Moroka, Freedom Park |
-| West  | Braamfischerville Reservoir  | Dobsonville, Moletsane, Tladi, Mapetla, Zola, Emdeni, Braamfischerville, Doornkop |
+| Method | Endpoint           | Description                          |
+|--------|--------------------|--------------------------------------|
+| GET    | `/`                | Health check                         |
+| GET    | `/alerts`          | Active HIGH/MEDIUM Soweto alerts     |
+| GET    | `/notices`         | All notices (paginated)              |
+| GET    | `/dam`             | Latest Vaal Dam level                |
+| GET    | `/subscribe`       | Subscription web form (HTML)         |
+| POST   | `/subscribe`       | Register phone + suburb (JSON)       |
+| POST   | `/subscribe/form`  | Handle HTML form submission          |
+| POST   | `/unsubscribe`     | Deactivate a subscription            |
+
+Interactive docs: `http://localhost:8000/docs`
+
+### Subscribe via API (JSON)
+```bash
+curl -X POST http://localhost:8000/subscribe \
+  -H "Content-Type: application/json" \
+  -d '{"phone_number": "+27821234567", "suburb_name": "Chiawelo", "channel": "whatsapp"}'
+```
+
+---
+
+## Vaal Dam Tracker
+
+The pipeline scrapes the DWS (Dept of Water & Sanitation) weekly hydrology page for Vaal Dam storage levels.
+
+| Level    | Status    | Severity |
+|----------|-----------|----------|
+| ≥ 80%    | Full      | LOW      |
+| 50–79%   | Normal    | LOW      |
+| 30–49%   | Low       | MEDIUM   |
+| 15–29%   | Very Low  | HIGH     |
+| < 15%    | Critical  | HIGH     |
+
+The dashboard shows the current level + a trend chart of the last 30 readings.
+
+---
+
+## Deploy to Railway
+
+1. Push your code to GitHub
+2. Go to [railway.app](https://railway.app) → New Project → Deploy from GitHub
+3. Select your repo
+4. Add environment variables in Railway dashboard (same as your `.env` file)
+5. Railway reads `railway.toml` and deploys automatically
+
+For the pipeline worker (scheduled scraping), add a second Railway service pointing to the same repo with start command:
+```
+python pipeline.py --schedule
+```
+
+For the API, add a third service with:
+```
+uvicorn api.api:app --host 0.0.0.0 --port $PORT
+```
 
 ---
 
 ## Environment Variables
-
-Copy `.env.example` to `.env` and fill in:
 
 ```
 TWILIO_ACCOUNT_SID=your_account_sid_here
@@ -114,37 +180,39 @@ TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
 TWILIO_SMS_FROM=+1XXXXXXXXXX
 ```
 
-Get Twilio credentials at: https://twilio.com (free account)
+> Without Twilio credentials the notifier runs in dry-run mode — messages print to terminal, everything else still works.
 
 ---
 
 ## Tech Stack
 
-| Tool              | Purpose                        |
-|-------------------|--------------------------------|
-| Python            | Core language                  |
-| BeautifulSoup     | Web scraping                   |
-| Pandas            | Data processing                |
-| SQLite/PostgreSQL | Database storage               |
-| Apache Airflow    | Pipeline scheduling            |
-| dbt               | Data transformation            |
-| Twilio            | WhatsApp & SMS alerts          |
-| Streamlit         | Dashboard                      |
-| Plotly            | Charts                         |
+| Tool          | Purpose                    |
+|---------------|----------------------------|
+| Python        | Core language              |
+| BeautifulSoup | Web scraping               |
+| Pandas        | Data processing            |
+| SQLite        | Database                   |
+| Twilio        | WhatsApp & SMS             |
+| Streamlit     | Live dashboard             |
+| Plotly        | Charts                     |
+| FastAPI       | REST API                   |
+| Uvicorn       | ASGI server                |
+| Railway       | Cloud deployment           |
 
 ---
 
 ## Roadmap
 
-- [x] Phase 1 — JHB Water scraper + SQLite storage
-- [x] Phase 2 — Soweto suburb filtering + severity classification
-- [x] Phase 3 — WhatsApp/SMS notifications via Twilio
-- [x] Phase 4 — Streamlit dashboard with severity charts
-- [x] Phase 5 — Rand Water scraper added
-- [ ] Phase 6 — Vaal Dam level tracker
-- [ ] Phase 7 — Deploy to Railway or Render
-- [ ] Phase 8 — REST API (FastAPI)
-- [ ] Phase 9 — PyPI package
+- [x] Phase 1 — JHB Water scraper + SQLite
+- [x] Phase 2 — Soweto filtering + severity classification
+- [x] Phase 3 — WhatsApp/SMS via Twilio
+- [x] Phase 4 — Streamlit dashboard
+- [x] Phase 5 — Rand Water scraper
+- [x] Phase 6 — Vaal Dam level tracker
+- [x] Phase 7 — Railway deploy config
+- [x] Phase 8 — FastAPI REST API
+- [x] Phase 9 — Resident subscription web form
+- [ ] Phase 10 — PyPI package
 
 ---
 
@@ -152,6 +220,6 @@ Get Twilio credentials at: https://twilio.com (free account)
 
 **Ntombikayise Faith Sibisi**
 Email: Sibisintombikayise7@gmail.com
-GitHub: github.com/ntombi-hub
-LinkedIn: linkedin.com/in/ntombikayisesibisi
+GitHub: [github.com/ntombi-hub](https://github.com/ntombi-hub)
+LinkedIn: [linkedin.com/in/ntombikayisesibisi](https://linkedin.com/in/ntombikayisesibisi)
 Location: Soweto, Johannesburg, South Africa

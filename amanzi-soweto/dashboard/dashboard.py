@@ -12,55 +12,55 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Find the database file — it sits one level up from this script
-# ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).parent.parent
 DB_PATH  = BASE_DIR / "amanzi_soweto.db"
 
 
-# ---------------------------------------------------------------------------
-# load_notices()
-# Pull all active Soweto notices from the database.
-# Returns an empty DataFrame if the DB doesn't exist yet.
-# ---------------------------------------------------------------------------
 def load_notices():
     if not DB_PATH.exists():
         return pd.DataFrame()
     conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("""
-        SELECT *
-        FROM water_notices
-        WHERE is_soweto = 1
-        ORDER BY scraped_at DESC
-    """, conn)
+    df = pd.read_sql_query(
+        "SELECT * FROM water_notices WHERE is_soweto = 1 ORDER BY scraped_at DESC", conn
+    )
     conn.close()
     return df
 
 
-# ---------------------------------------------------------------------------
-# load_active_alerts()
-# Only the HIGH and MEDIUM notices that are still ongoing.
-# ---------------------------------------------------------------------------
 def load_active_alerts():
     if not DB_PATH.exists():
         return pd.DataFrame()
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("""
-        SELECT *
-        FROM water_notices
-        WHERE is_soweto = 1
-          AND is_active  = 1
-          AND severity  IN ('HIGH', 'MEDIUM')
-        ORDER BY
-            CASE severity WHEN 'HIGH' THEN 1 ELSE 2 END,
-            scraped_at DESC
+        SELECT * FROM water_notices
+        WHERE is_soweto = 1 AND is_active = 1 AND severity IN ('HIGH', 'MEDIUM')
+        ORDER BY CASE severity WHEN 'HIGH' THEN 1 ELSE 2 END, scraped_at DESC
     """, conn)
     conn.close()
     return df
+
+
+def load_dam_level():
+    if not DB_PATH.exists():
+        return None, pd.DataFrame()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        latest = conn.execute(
+            "SELECT * FROM dam_levels ORDER BY scraped_at DESC LIMIT 1"
+        ).fetchone()
+        history = pd.read_sql_query(
+            "SELECT * FROM dam_levels ORDER BY scraped_at DESC LIMIT 30", conn
+        )
+    except Exception:
+        latest, history = None, pd.DataFrame()
+    conn.close()
+    if latest:
+        keys = ["id", "dam_name", "level_pct", "status", "severity", "source_url", "scraped_at"]
+        latest = dict(zip(keys, latest))
+    return latest, history
 
 
 # ---------------------------------------------------------------------------
@@ -112,8 +112,9 @@ st.markdown("""
 # ---------------------------------------------------------------------------
 # Load data
 # ---------------------------------------------------------------------------
-df_all    = load_notices()
-df_active = load_active_alerts()
+df_all          = load_notices()
+df_active       = load_active_alerts()
+dam_latest, dam_history = load_dam_level()
 
 # ---------------------------------------------------------------------------
 # HEADER
@@ -203,6 +204,51 @@ with c4:
     </div>""", unsafe_allow_html=True)
 
 st.markdown("")
+
+# ---------------------------------------------------------------------------
+# VAAL DAM LEVEL
+# ---------------------------------------------------------------------------
+st.markdown("### 🌊 Vaal Dam Level")
+
+if dam_latest:
+    level   = dam_latest["level_pct"]
+    status  = dam_latest["status"]
+    sev     = dam_latest["severity"]
+    colour  = {"LOW": "#44bb44", "MEDIUM": "#ffaa00", "HIGH": "#ff4444"}.get(sev, "#888")
+    scraped = dam_latest.get("scraped_at", "")[:16].replace("T", " ")
+
+    dam_col1, dam_col2 = st.columns([1, 2])
+    with dam_col1:
+        st.markdown(f"""
+        <div class='metric-card' style='border-left-color:{colour}'>
+            <div class='metric-number' style='color:{colour}'>{level}%</div>
+            <div class='metric-label'>Vaal Dam — {status}</div>
+            <div style='color:#555; font-size:0.75rem; margin-top:6px'>Updated {scraped}</div>
+        </div>""", unsafe_allow_html=True)
+
+    with dam_col2:
+        if not dam_history.empty and len(dam_history) > 1:
+            dam_history = dam_history.sort_values("scraped_at")
+            fig_dam = px.line(
+                dam_history, x="scraped_at", y="level_pct",
+                labels={"scraped_at": "", "level_pct": "Level (%)"},
+                color_discrete_sequence=[colour],
+            )
+            fig_dam.add_hline(y=30, line_dash="dash", line_color="#ff4444",
+                              annotation_text="30% restriction threshold")
+            fig_dam.update_layout(
+                plot_bgcolor="#1e2130", paper_bgcolor="#1e2130",
+                font=dict(color="#e0e0e0"), height=180,
+                margin=dict(t=10, b=10, l=10, r=10),
+                xaxis=dict(gridcolor="#2a2d3e"),
+                yaxis=dict(gridcolor="#2a2d3e", range=[0, 110]),
+            )
+            st.plotly_chart(fig_dam, use_container_width=True)
+        else:
+            st.caption("Run the pipeline a few more times to see the trend chart.")
+else:
+    st.info("No dam data yet — run `python pipeline.py` to fetch it.")
+
 st.markdown("")
 
 # ---------------------------------------------------------------------------
@@ -315,12 +361,11 @@ st.markdown("")
 
 # ---------------------------------------------------------------------------
 # NOTICE TYPE BREAKDOWN (secondary chart)
-# Shows what kinds of notices are being logged: emergency, planned, etc.
 # ---------------------------------------------------------------------------
-if not df_all.empty and "type" in df_all.columns:
+if not df_all.empty and "notice_type" in df_all.columns:
     st.markdown("### 📋 Notice Type Breakdown")
 
-    type_counts = df_all["type"].value_counts().reset_index()
+    type_counts = df_all["notice_type"].value_counts().reset_index()
     type_counts.columns = ["Type", "Count"]
 
     # Clean up the type labels for display
@@ -366,16 +411,18 @@ st.markdown(
 )
 
 # ---------------------------------------------------------------------------
-# AUTO-REFRESH every 5 minutes so the dashboard stays live
+# SIDEBAR CONTROLS + AUTO-REFRESH
 # ---------------------------------------------------------------------------
-import time
-if "refresh_count" not in st.session_state:
-    st.session_state.refresh_count = 0
-
-# Show a small refresh button in the corner
 with st.sidebar:
     st.markdown("### ⚙️ Controls")
     if st.button("🔄 Refresh Now"):
         st.rerun()
-    st.markdown(f"*Auto-refreshes every 5 min*")
+    st.markdown("*Auto-refreshes every 5 min*")
     st.markdown(f"*DB: `{DB_PATH.name}`*")
+
+# st_autorefresh is not available in all Streamlit versions;
+# use a simple meta-refresh fallback instead.
+st.markdown(
+    "<meta http-equiv='refresh' content='300'>",
+    unsafe_allow_html=True,
+)

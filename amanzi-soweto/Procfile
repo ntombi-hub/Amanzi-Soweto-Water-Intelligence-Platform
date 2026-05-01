@@ -1,0 +1,3 @@
+web: streamlit run dashboard/dashboard.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+api: uvicorn api.api:app --host 0.0.0.0 --port ${API_PORT:-8000}
+worker: python pipeline.py --schedule
