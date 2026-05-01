@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "amanzi-soweto"
+version = "1.0.0"
+description = "Real-time water outage intelligence for Soweto, Johannesburg"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Ntombikayise Faith Sibisi", email = "Sibisintombikayise7@gmail.com" }]
+keywords = ["water", "soweto", "johannesburg", "outage", "alerts", "scraper"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Topic :: Utilities",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "pandas>=2.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+notifications = ["twilio>=9.0.0"]
+all = ["twilio>=9.0.0"]
+
+[project.urls]
+Homepage   = "https://github.com/ntombi-hub/amanzi-soweto"
+Repository = "https://github.com/ntombi-hub/amanzi-soweto"
+Issues     = "https://github.com/ntombi-hub/amanzi-soweto/issues"
+
+[project.scripts]
+amanzi-pipeline = "amanzi_soweto._cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["amanzi_soweto*"]

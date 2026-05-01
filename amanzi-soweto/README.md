@@ -212,7 +212,45 @@ TWILIO_SMS_FROM=+1XXXXXXXXXX
 - [x] Phase 7 — Railway deploy config
 - [x] Phase 8 — FastAPI REST API
 - [x] Phase 9 — Resident subscription web form
-- [ ] Phase 10 — PyPI package
+- [x] Phase 10 — PyPI package
+
+---
+
+## PyPI Package
+
+The core scraper, database, and notifier are also published as a standalone Python package.
+
+```bash
+pip install amanzi-soweto
+```
+
+With Twilio notifications:
+```bash
+pip install amanzi-soweto[notifications]
+```
+
+Quick usage:
+```python
+from amanzi_soweto import JHBWaterScraper, get_active_alerts, setup_sqlite
+
+setup_sqlite("my.db")
+df = JHBWaterScraper().run()
+print(get_active_alerts("my.db"))
+```
+
+CLI:
+```bash
+amanzi-pipeline              # run once
+amanzi-pipeline --schedule   # run every 2 hours
+```
+
+Package source is in `amanzi_soweto_pkg/`. To publish:
+```bash
+cd amanzi_soweto_pkg
+pip install build twine
+python -m build
+twine upload dist/*
+```
 
 ---
 
